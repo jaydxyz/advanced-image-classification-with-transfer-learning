@@ -68,14 +68,36 @@ checkpoint = ModelCheckpoint("best_model.h5", save_best_only=True, monitor="val_
 early_stop = EarlyStopping(monitor="val_accuracy", patience=5, restore_best_weights=True)
 reduce_lr = ReduceLROnPlateau(monitor="val_accuracy", factor=0.1, patience=3, min_lr=1e-6)
 
-# Train the model
-epochs = 20
+# Train the model (initial training)
+initial_epochs = 10
 history = model.fit(
     train_generator,
     steps_per_epoch=train_generator.samples // batch_size,
     validation_data=validation_generator,
     validation_steps=validation_generator.samples // batch_size,
-    epochs=epochs,
+    epochs=initial_epochs,
+    callbacks=[checkpoint, early_stop, reduce_lr]
+)
+
+# Fine-tuning
+# Unfreeze the top layers of the model
+for layer in model.layers[-20:]:
+    layer.trainable = True
+
+# Recompile the model with a lower learning rate
+model.compile(optimizer=Adam(lr=1e-5), loss="categorical_crossentropy", metrics=["accuracy"])
+
+# Continue training with fine-tuning
+fine_tune_epochs = 10
+total_epochs = initial_epochs + fine_tune_epochs
+
+history_fine = model.fit(
+    train_generator,
+    steps_per_epoch=train_generator.samples // batch_size,
+    validation_data=validation_generator,
+    validation_steps=validation_generator.samples // batch_size,
+    epochs=total_epochs,
+    initial_epoch=history.epoch[-1],
     callbacks=[checkpoint, early_stop, reduce_lr]
 )
 
@@ -117,14 +139,14 @@ print(f"Confidence: {confidence:.2f}%")
 # Visualize the training history
 plt.figure(figsize=(12, 6))
 plt.subplot(1, 2, 1)
-plt.plot(history.history["accuracy"], label="Training Accuracy")
-plt.plot(history.history["val_accuracy"], label="Validation Accuracy")
+plt.plot(history.history["accuracy"] + history_fine.history["accuracy"], label="Training Accuracy")
+plt.plot(history.history["val_accuracy"] + history_fine.history["val_accuracy"], label="Validation Accuracy")
 plt.xlabel("Epoch")
 plt.ylabel("Accuracy")
 plt.legend()
 plt.subplot(1, 2, 2)
-plt.plot(history.history["loss"], label="Training Loss")
-plt.plot(history.history["val_loss"], label="Validation Loss")
+plt.plot(history.history["loss"] + history_fine.history["loss"], label="Training Loss")
+plt.plot(history.history["val_loss"] + history_fine.history["val_loss"], label="Validation Loss")
 plt.xlabel("Epoch")
 plt.ylabel("Loss")
 plt.legend()
